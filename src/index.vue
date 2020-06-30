@@ -1,14 +1,26 @@
 <template>
   <div class="uploadBox" style="display: inline-block;">
     <div class="selectButton" >
-      <button :style="basicData.selectButtonStyle" @click="submitBtn()">选择文件</button>
-      <input type="file" @change="fileChange" >
+      <button :style="basicData.selectButtonStyle">选择文件</button>
+      <input type="file" multiple="multiple" @change="fileChange" >
     </div>
     <button :style="basicData.uploadButtonStyle" class="uploadButton" @click="submitBtn()">上传</button>
     <div style="clear: both;"></div>
     <ul>
       <li v-for="(item, index) in uploadFileInfo.fileList || []" :key="index">
-        {{item.name}} {{item.schedule}}%
+        <span>{{item.name}}</span>
+        <span :style="`color: ${isUploadStatus[item.isUpload || 'default'].color}`">
+          {{isUploadStatus[item.isUpload || 'default'].val}}
+        </span>
+        <span v-if="!item.isUpload">
+          {{item.isUpload === 'success' ? 100 : item.schedule}}%
+        </span>
+        <div
+          class="schedule"
+          :style="`
+            width: ${item.isUpload === 'success' ? 100 : item.schedule}%;
+          `"
+        ></div>
       </li>
     </ul>
   </div>
@@ -40,6 +52,11 @@ export default {
       file: null,
       blobSlice: null,
       fileHash: '',
+      isUploadStatus: {
+        default: { val: '', color: '' },
+        success: { val: '✔', color: 'green' },
+        fail: { val: '✘', color: 'red' }
+      },
       basicData: {
         uploadButtonStyle: '',
         selectButtonStyle: '',
@@ -73,28 +90,32 @@ export default {
     },
     fileChange (e) {
       if (!e.target.files || !e.target.files[0]) return
-      this.file = e.target.files[0]
+      this.file = e.target.files
       e.target.files.forEach(item => {
         this.uploadFileInfo.fileList.push({
           name: item.name,
           size: item.size,
+          isUpload: false,
           schedule: 0
         })
+        const reader = new FileReader()
+        reader.readAsArrayBuffer(item)
+        reader.onload = e => {
+          const bstr = e.target.result
+          this.fileHash = MD5(bstr)
+        }
+        reader.onerror = () => {
+          console.warn('文件读取失败！')
+        }
       })
-      const reader = new FileReader()
-      this.file && reader.readAsArrayBuffer(this.file)
-      reader.onload = e => {
-        const bstr = e.target.result
-        this.fileHash = MD5(bstr)
-        
-        console.log(this.blobSlice, bstr, new Blob([bstr]),)
-      }
-      reader.onerror = () => {
-        console.warn('文件读取失败！')
-      }
     },
-    async submitBtn (file) {
-      file = file || this.file
+    submitBtn () {
+      this.file && this.file.forEach(item => {
+        this.submit(item)
+      })
+    },
+    async submit (file) {
+      file = file || this.file[0]
       if (!file) {
         return
       }
@@ -106,6 +127,7 @@ export default {
         const start = i * this.basicData.chunkSize;
         const end = Math.min(file.size, start + this.basicData.chunkSize)
         const sheet = this.blobSlice.call(file, start, end)
+        const sheetHash = MD5(sheet)
 
         const form = new FormData()
         form.append('file', sheet)
@@ -113,16 +135,14 @@ export default {
         form.append('total', chunks)
         form.append('index', i)
         form.append('size', file.size)
-        form.append('sheetHash', MD5(sheet))
+        form.append('sheetHash', sheetHash)
         form.append('fileHash', this.fileHash)
         const axiosOptions = {
-          onUploadProgress: e => {
+          onUploadProgress: () => {
             // 处理上传的进度
-            console.log(chunks, i, e, file)
             this.uploadFileInfo.fileList.forEach(item => {
               if (file.name === item.name) {
-                const schedule = ((i+1) / chunks) * 100
-                item.schedule = +schedule === 100 ? schedule : schedule.toFixed(2)
+                item.schedule = (((i+1) / chunks) * 100).toFixed(2)
               }
             })
           },
@@ -138,10 +158,18 @@ export default {
           total: chunks,
           fileHash: this.fileHash
         }
-        axios[this.basicData.confirm.method || 'get'](this.basicData.confirm.url, data).then(res => {
-          console.log('上传成功');
-          console.log(res.data, file)
+        axios[this.basicData.confirm.method || 'get'](this.basicData.confirm.url, data).then(() => {
+          this.uploadFileInfo.fileList.forEach(item => {
+            if (file.name === item.name) {
+              item.isUpload = 'success'
+            }
+          })
         }).catch(err => {
+          this.uploadFileInfo.fileList.forEach(item => {
+            if (file.name === item.name) {
+              item.isUpload = 'fail'
+            }
+          })
           console.log(err)
         })
       })
@@ -185,5 +213,10 @@ export default {
 .uploadButton {
   float: left;
 }
-
+.schedule{
+  height: 3px;
+  max-width: 720px;
+  border-radius: 50px;
+  background-color: green;
+}
 </style>
