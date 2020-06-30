@@ -1,0 +1,28 @@
+{
+  "name": "@stroll/upload",
+  "version": "0.0.1",
+  "description": "大文件上传",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stroll-liu/upload.git"
+  },
+  "keywords": [
+    "vue",
+    "upload",
+    "分片上传"
+  ],
+  "author": "stroll-liu",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/stroll-liu/upload/issues"
+  },
+  "homepage": "https://github.com/stroll-liu/upload#readme",
+  "dependencies": {
+    "axios": "^0.19.2",
+    "md5": "^2.2.1"
+  }
+}
