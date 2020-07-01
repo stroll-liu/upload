@@ -2,25 +2,39 @@
   <div class="uploadBox" style="display: inline-block;">
     <div class="selectButton" >
       <button :style="basicData.selectButtonStyle">选择文件</button>
-      <input type="file" multiple="multiple" @change="fileChange" >
+      <input
+        type="file"
+        :multiple="basicData.multiple"
+        :accept="basicData.accept"
+        @change="fileChange"
+      >
     </div>
     <button :style="basicData.uploadButtonStyle" class="uploadButton" @click="submitBtn()">上传</button>
     <div style="clear: both;"></div>
     <ul>
       <li v-for="(item, index) in uploadFileInfo.fileList || []" :key="index">
-        <span>{{item.name}}</span>
-        <span :style="`color: ${isUploadStatus[item.isUpload || 'default'].color}`">
+        <div class="fl mr10">
+          <span>{{item.name}}</span>
+
+          <div
+            class="schedule"
+            :style="`
+              width: ${item.isUpload === 'success' ? 100 : item.schedule}%;
+            `"
+          ></div>
+        </div>
+        <span class="fl" :style="`color: ${isUploadStatus[item.isUpload || 'default'].color}`">
           {{isUploadStatus[item.isUpload || 'default'].val}}
         </span>
-        <span v-if="!item.isUpload">
+        <span class="fl" v-if="!item.isUpload">
           {{item.isUpload === 'success' ? 100 : item.schedule}}%
         </span>
-        <div
-          class="schedule"
-          :style="`
-            width: ${item.isUpload === 'success' ? 100 : item.schedule}%;
-          `"
-        ></div>
+        <a
+          class="fl"
+          v-show="item.isUpload === 'fail'"
+          @click="reUpload(item)"
+        >➠</a>
+        <div style="clear: both;"></div>
       </li>
     </ul>
   </div>
@@ -34,11 +48,7 @@ export default {
   props: {
     initData: {
       type: Object,
-      default: () => ({
-        chunkSize: 2 * 1024 * 1024,
-        uploadUrl: '/file/upload',
-        confirmUrl: '/file/merge_chunks'
-      })
+      default: () => ({})
     },
     uploadFileInfo: {
       type: Object,
@@ -51,16 +61,19 @@ export default {
     return {
       file: null,
       blobSlice: null,
-      fileHash: '',
       isUploadStatus: {
         default: { val: '', color: '' },
         success: { val: '✔', color: 'green' },
         fail: { val: '✘', color: 'red' }
       },
       basicData: {
+        salt: 'salt',
+        multiple: true,
         uploadButtonStyle: '',
         selectButtonStyle: '',
         chunkSize: 2 * 1024 * 1024,
+        amount: 2,
+        accept: false,
         upload: {
           method: 'post',
           url: '/file/upload'
@@ -68,7 +81,8 @@ export default {
         confirm: {
           method: 'post',
           url: '/file/merge_chunks'
-        }
+        },
+        status: { code: 0, status: 'success', message: '成功' }
       }
     }
   },
@@ -88,30 +102,63 @@ export default {
         }
       })
     },
-    fileChange (e) {
+    async selectCallback (res) {
+      console.log(this.$emit('dddd'))
+      this.$emit('selectCallback', res)
+    },
+    async fileChange (e) {
       if (!e.target.files || !e.target.files[0]) return
+      this.file = null
+      if (e.target.files.length > this.basicData.amount) {
+        this.basicData.status = {
+          code: 1001,
+          status: 'error',
+          message: `上传数量超出，上限为${this.basicData.amount}`
+        }
+        await this.selectCallback(this.basicData.status)
+        return false
+      }
       this.file = e.target.files
-      e.target.files.forEach(item => {
-        this.uploadFileInfo.fileList.push({
-          name: item.name,
-          size: item.size,
-          isUpload: false,
-          schedule: 0
-        })
+      await this.getFile(this.file)
+    },
+    async getFile (file) {
+      file && file.forEach(item => {
         const reader = new FileReader()
         reader.readAsArrayBuffer(item)
         reader.onload = e => {
           const bstr = e.target.result
-          this.fileHash = MD5(bstr)
+          this.uploadFileInfo.fileList.push({
+            name: item.name,
+            size: item.size,
+            isUpload: false,
+            fileHash: MD5(bstr),
+            schedule: 0
+          })
         }
         reader.onerror = () => {
           console.warn('文件读取失败！')
         }
       })
     },
-    submitBtn () {
+    async submitBtn () {
+      this.file && this.file.forEach(async item => {
+        this.uploadFileInfo.fileList.forEach(el => {
+          if (item.name === el.name) {
+            item.fileHash = el.fileHash
+          }
+        })
+        await this.submit(item)
+      })
+    },
+    async reUpload (params) {
       this.file && this.file.forEach(item => {
-        this.submit(item)
+        this.uploadFileInfo.fileList.forEach(el => {
+          if (item.name === params.name && params.name === el.name) {
+            el.isUpload = false
+            el.schedule = 0
+            this.submit(item)
+          }
+        })
       })
     },
     async submit (file) {
@@ -127,16 +174,15 @@ export default {
         const start = i * this.basicData.chunkSize;
         const end = Math.min(file.size, start + this.basicData.chunkSize)
         const sheet = this.blobSlice.call(file, start, end)
-        const sheetHash = MD5(sheet)
 
         const form = new FormData()
         form.append('file', sheet)
-        form.append('name', file.name)
+        form.append('name', `${new Date().getTime()}-${this.basicData.salt}-${file.name}`)
         form.append('total', chunks)
         form.append('index', i)
         form.append('size', file.size)
-        form.append('sheetHash', sheetHash)
-        form.append('fileHash', this.fileHash)
+        form.append('sheetHash', MD5(sheet))
+        form.append('fileHash', file.fileHash)
         const axiosOptions = {
           onUploadProgress: () => {
             // 处理上传的进度
@@ -148,17 +194,17 @@ export default {
           },
         };
         // 加入到 Promise 数组中
-        axiosPromiseArray.push(axios[this.basicData.upload.method || 'post'](this.basicData.upload.url, form, axiosOptions))
+        axiosPromiseArray.push(axios[this.basicData.upload.method](this.basicData.upload.url, form, axiosOptions))
       }
       // 所有分片上传后，请求合并分片文件
-      await axios.all(axiosPromiseArray).then(() => {
+      await axios.all(axiosPromiseArray).then(async () => {
         const data = {
           size: file.size,
-          name: file.name,
+          name: `${new Date().getTime()}-${this.basicData.salt}-${file.name}`,
           total: chunks,
-          fileHash: this.fileHash
+          fileHash: file.fileHash
         }
-        axios[this.basicData.confirm.method || 'get'](this.basicData.confirm.url, data).then(() => {
+        await axios[this.basicData.confirm.method](this.basicData.confirm.url, data).then(() => {
           this.uploadFileInfo.fileList.forEach(item => {
             if (file.name === item.name) {
               item.isUpload = 'success'
@@ -218,5 +264,14 @@ export default {
   max-width: 720px;
   border-radius: 50px;
   background-color: green;
+}
+.fl {
+  float: left;
+}
+.fr {
+  float: right;
+}
+.mr10 {
+  margin-right: 10px;
 }
 </style>
