@@ -11,8 +11,11 @@
     </div>
     <button :style="basicData.uploadButtonStyle" class="uploadButton" @click="submitBtn()">上传</button>
     <div style="clear: both;"></div>
-    <ul>
+    <ul class="fileList">
       <li v-for="(item, index) in uploadFileInfo.fileList || []" :key="index">
+        <span class="fl mr10" :style="`color: ${isUploadStatus[item.isUpload || 'default'].color}`">
+          {{isUploadStatus[item.isUpload || 'default'].val}}
+        </span>
         <div class="fl mr10">
           <span>{{item.name}}</span>
 
@@ -23,9 +26,6 @@
             `"
           ></div>
         </div>
-        <span class="fl" :style="`color: ${isUploadStatus[item.isUpload || 'default'].color}`">
-          {{isUploadStatus[item.isUpload || 'default'].val}}
-        </span>
         <span class="fl" v-if="!item.isUpload">
           {{item.isUpload === 'success' ? 100 : item.schedule}}%
         </span>
@@ -34,6 +34,7 @@
           v-show="item.isUpload === 'fail'"
           @click="reUpload(item)"
         >➠</a>
+        <a class="fl ml10 ptr" @click="delFile(item)" >☒</a>
         <div style="clear: both;"></div>
       </li>
     </ul>
@@ -46,7 +47,7 @@ import axios from 'axios'
 export default {
   name: 'sUpload',
   props: {
-    initData: {
+    configData: {
       type: Object,
       default: () => ({})
     },
@@ -87,11 +88,11 @@ export default {
     }
   },
   mounted () {
-    this.init(this.initData)
+    this.initConfig(this.configData)
     this.blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice
   },
   methods: {
-    init (params) {
+    initConfig (params) {
       Object.keys(params).forEach(item => {
         if (['upload', 'confirm'].includes(item)) {
           Object.keys(params[item]).forEach(key => {
@@ -102,22 +103,25 @@ export default {
         }
       })
     },
+    initData () {
+      this.file = null
+      this.uploadFileInfo.fileList = []
+    },
     async selectCallback (res) {
       console.log(this.$emit('dddd'))
       this.$emit('selectCallback', res)
     },
+    delFile (row) {
+      console.log(row)
+      this.$emit('delFile', row)
+    },
     async fileChange (e) {
       if (!e.target.files || !e.target.files[0]) return
-      this.file = null
-      if (e.target.files.length > this.basicData.amount) {
-        this.basicData.status = {
-          code: 1001,
-          status: 'error',
-          message: `上传数量超出，上限为${this.basicData.amount}`
-        }
-        await this.selectCallback(this.basicData.status)
+      if (e.target.files.length > this.basicData.amount && this.uploadFileInfo.fileList.length > this.basicData.amount) {
+        await this.selectCallback(this.getStatus(1001))
         return false
       }
+      console.log(e.target.files)
       this.file = e.target.files
       await this.getFile(this.file)
     },
@@ -219,6 +223,19 @@ export default {
           console.log(err)
         })
       })
+    },
+    async getStatus (code) {
+      switch (code) {
+        case 1001:
+          return {
+            code: 1001,
+            status: 'error',
+            message: `上传数量超出，上限为${this.basicData.amount}`
+          }
+          break
+        default:
+          return { code: 0, status: 'success', message: '成功' }
+      }
     }
   }
 }
@@ -273,5 +290,15 @@ export default {
 }
 .mr10 {
   margin-right: 10px;
+}
+.ml10 {
+  margin-left: 10px;
+}
+.ptr {
+  display:none; 
+  color: red;
+}
+.fileList li:hover .ptr{
+  display: inline;
 }
 </style>
