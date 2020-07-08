@@ -5,6 +5,7 @@
       <input
         type="file"
         id="stroll-file"
+        title=" "
         :multiple="basicData.multiple"
         :accept="basicData.accept"
         @change="fileChange"
@@ -31,12 +32,12 @@
           {{item.isUpload === 'success' ? 100 : item.schedule}}%
         </span>
         <a
-          class="fl"
+          class="fl mr10"
           title="重新上传"
           v-show="item.isUpload === 'fail'"
           @click="reUpload(item)"
         >➠</a>
-        <a title="删除" class="fl ml10 ptr" @click="delFile(item)" >☒</a>
+        <a title="删除" class="fl ptr" @click="delFile(item)" >☒</a>
         <div style="clear: both;"></div>
       </li>
     </ul>
@@ -77,7 +78,7 @@ export default {
         accept: false,
         uploadButton: {
           style: '',
-          show: false
+          show: true
         },
         selectButton: {
           style: ''
@@ -115,7 +116,6 @@ export default {
       this.uploadFileInfo.fileList = []
     },
     async selectCallback (res) {
-      console.log(this.$emit('dddd'))
       this.$emit('selectCallback', res)
     },
     async delFile (row) {
@@ -139,7 +139,17 @@ export default {
         await this.selectCallback(this.getStatus(1001))
         return false
       }
+      for (var i = 0; i < e.target.files.length; i++) {
+        const FileName = e.target.files[i].name
+        Object.defineProperty(e.target.files[i], 'name', {
+          writable: true //设置属性为可写
+        })
+        e.target.files[i].name = `${this.basicData.salt}${FileName}`
+      }
       this.file = e.target.files
+      const inputFile = document.getElementById('stroll-file')
+      inputFile.setAttribute('type', 'text')
+      inputFile.setAttribute('type', 'file')
       await this.getFile(this.file)
     },
     async getFile (file) {
@@ -147,16 +157,15 @@ export default {
         const reader = new FileReader()
         reader.readAsArrayBuffer(item)
         reader.onload = async e => {
-          const bstr = e.target.result
           this.uploadFileInfo.fileList.push({
             name: item.name,
             size: item.size,
             isUpload: false,
-            fileHash: MD5(bstr),
+            fileHash: e.target.result,
             schedule: 0
           })
           if (!this.basicData.uploadButton.show) {
-            await this.submit(item, bstr)
+            await this.submit(item)
           }
         }
         reader.onerror = () => {
@@ -166,13 +175,8 @@ export default {
     },
     async submitBtn (file) {
       file = file || this.file
-      file && this.file.forEach(async item => {
-        this.uploadFileInfo.fileList.forEach(el => {
-          if (item.name === el.name) {
-            item.fileHash = el.fileHash
-          }
-        })
-        await this.submit(item)
+      file && this.file.forEach(item => {
+        this.submit(item)
       })
     },
     async reUpload (params) {
@@ -186,8 +190,8 @@ export default {
         })
       })
     },
-    async submit (file, fileHash) {
-      file = file || this.file[0]
+    async submit (item) {
+      const file = item || this.file[0]
       if (!file) {
         return
       }
@@ -202,12 +206,11 @@ export default {
 
         const form = new FormData()
         form.append('file', sheet)
-        form.append('name', `${new Date().getTime()}-${this.basicData.salt}-${file.name}`)
+        form.append('name', `${file.name}`)
         form.append('total', chunks)
         form.append('index', i)
         form.append('size', file.size)
-        form.append('sheetHash', MD5(sheet))
-        form.append('fileHash', fileHash ? MD5(fileHash) : file.fileHash)
+        form.append('fileHash', MD5(file.name))
         const axiosOptions = {
           onUploadProgress: () => {
             // 处理上传的进度
@@ -217,17 +220,17 @@ export default {
               }
             })
           },
-        };
+        }
         // 加入到 Promise 数组中
         axiosPromiseArray.push(axios[this.basicData.upload.method](this.basicData.upload.url, form, axiosOptions))
       }
       // 所有分片上传后，请求合并分片文件
-      await axios.all(axiosPromiseArray).then(async () => {
+      const mergeChunks = async () => {
         const data = {
           size: file.size,
-          name: `${new Date().getTime()}-${this.basicData.salt}-${file.name}`,
+          name: `${file.name}`,
           total: chunks,
-          fileHash: fileHash ? MD5(fileHash) : file.fileHash
+          fileHash: MD5(file.name)
         }
         await axios[this.basicData.confirm.method](this.basicData.confirm.url, data).then(() => {
           this.uploadFileInfo.fileList.forEach(item => {
@@ -243,6 +246,12 @@ export default {
           })
           console.log(err)
         })
+      }
+      await axios.all(axiosPromiseArray).then(async () => {
+        mergeChunks()
+      }).catch(async (err) => {
+        mergeChunks()
+        console.log(err)
       })
     },
     async getStatus (code) {
