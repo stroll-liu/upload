@@ -1,15 +1,16 @@
 <template>
   <div class="uploadBox" style="display: inline-block;">
     <div class="selectButton" >
-      <button :style="basicData.selectButtonStyle">选择文件</button>
+      <button :style="basicData.selectButton.style">选择文件</button>
       <input
         type="file"
+        id="stroll-file"
         :multiple="basicData.multiple"
         :accept="basicData.accept"
         @change="fileChange"
       >
     </div>
-    <button :style="basicData.uploadButtonStyle" class="uploadButton" @click="submitBtn()">上传</button>
+    <button v-if="basicData.uploadButton.show" :style="basicData.uploadButton.style" class="uploadButton" @click="submitBtn()">上传</button>
     <div style="clear: both;"></div>
     <ul class="fileList">
       <li v-for="(item, index) in uploadFileInfo.fileList || []" :key="index">
@@ -31,10 +32,11 @@
         </span>
         <a
           class="fl"
+          title="重新上传"
           v-show="item.isUpload === 'fail'"
           @click="reUpload(item)"
         >➠</a>
-        <a class="fl ml10 ptr" @click="delFile(item)" >☒</a>
+        <a title="删除" class="fl ml10 ptr" @click="delFile(item)" >☒</a>
         <div style="clear: both;"></div>
       </li>
     </ul>
@@ -70,11 +72,16 @@ export default {
       basicData: {
         salt: 'salt',
         multiple: true,
-        uploadButtonStyle: '',
-        selectButtonStyle: '',
         chunkSize: 2 * 1024 * 1024,
         amount: 2,
         accept: false,
+        uploadButton: {
+          style: '',
+          show: false
+        },
+        selectButton: {
+          style: ''
+        },
         upload: {
           method: 'post',
           url: '/file/upload'
@@ -111,25 +118,35 @@ export default {
       console.log(this.$emit('dddd'))
       this.$emit('selectCallback', res)
     },
-    delFile (row) {
-      console.log(row)
-      this.$emit('delFile', row)
+    async delFile (row) {
+      const arr = []
+      this.file.forEach(item => {
+        if (item.name !== row.name) {
+          arr.push(item)
+        }
+      })
+      this.uploadFileInfo.fileList.forEach((item, index) => {
+        if (item.name === row.name) {
+          this.uploadFileInfo.fileList.splice(index, 1)
+        }
+      })
+      this.file = arr
+      this.$emit('delFile', row, this.file)
     },
     async fileChange (e) {
       if (!e.target.files || !e.target.files[0]) return
-      if (e.target.files.length > this.basicData.amount && this.uploadFileInfo.fileList.length > this.basicData.amount) {
+      if ((+e.target.files.length + +this.uploadFileInfo.fileList.length) > this.basicData.amount || this.uploadFileInfo.fileList.length >= this.basicData.amount) {
         await this.selectCallback(this.getStatus(1001))
         return false
       }
-      console.log(e.target.files)
       this.file = e.target.files
       await this.getFile(this.file)
     },
     async getFile (file) {
-      file && file.forEach(item => {
+      file && file.forEach(async item => {
         const reader = new FileReader()
         reader.readAsArrayBuffer(item)
-        reader.onload = e => {
+        reader.onload = async e => {
           const bstr = e.target.result
           this.uploadFileInfo.fileList.push({
             name: item.name,
@@ -138,14 +155,18 @@ export default {
             fileHash: MD5(bstr),
             schedule: 0
           })
+          if (!this.basicData.uploadButton.show) {
+            await this.submit(item, bstr)
+          }
         }
         reader.onerror = () => {
           console.warn('文件读取失败！')
         }
       })
     },
-    async submitBtn () {
-      this.file && this.file.forEach(async item => {
+    async submitBtn (file) {
+      file = file || this.file
+      file && this.file.forEach(async item => {
         this.uploadFileInfo.fileList.forEach(el => {
           if (item.name === el.name) {
             item.fileHash = el.fileHash
@@ -165,7 +186,7 @@ export default {
         })
       })
     },
-    async submit (file) {
+    async submit (file, fileHash) {
       file = file || this.file[0]
       if (!file) {
         return
@@ -186,7 +207,7 @@ export default {
         form.append('index', i)
         form.append('size', file.size)
         form.append('sheetHash', MD5(sheet))
-        form.append('fileHash', file.fileHash)
+        form.append('fileHash', fileHash ? MD5(fileHash) : file.fileHash)
         const axiosOptions = {
           onUploadProgress: () => {
             // 处理上传的进度
@@ -206,7 +227,7 @@ export default {
           size: file.size,
           name: `${new Date().getTime()}-${this.basicData.salt}-${file.name}`,
           total: chunks,
-          fileHash: file.fileHash
+          fileHash: fileHash ? MD5(fileHash) : file.fileHash
         }
         await axios[this.basicData.confirm.method](this.basicData.confirm.url, data).then(() => {
           this.uploadFileInfo.fileList.forEach(item => {
@@ -225,17 +246,19 @@ export default {
       })
     },
     async getStatus (code) {
+      let row = { code: 0, status: 'success', message: '成功' }
       switch (code) {
         case 1001:
-          return {
+          row = {
             code: 1001,
             status: 'error',
             message: `上传数量超出，上限为${this.basicData.amount}`
           }
           break
         default:
-          return { code: 0, status: 'success', message: '成功' }
+          row = { code: 0, status: 'success', message: '成功' }
       }
+      return row
     }
   }
 }
