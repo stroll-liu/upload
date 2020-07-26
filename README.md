@@ -54,6 +54,6 @@ basicData: {
   @onsubmit='submit' // 上传文件自定义，可不传
   @onselect='select' // 选择文件错误回调，可不传
   :uploadFileInfo='uploadFileInfo' // 上传文件信息
-  :configData='basicData' // 初始化
+  :configData='basicData' // 初始化 也可使用组件内方法 initConfig(basicData) 进行初始化
 />
 ```
